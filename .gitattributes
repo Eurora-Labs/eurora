@@ -1,3 +1,4 @@
 *.vcf filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text
 *.icns !text !filter !merge !diff
 *.ico !text !filter !merge !diff
