@@ -163,6 +163,7 @@ fn main() {
             tauri::async_runtime::set(tokio::runtime::Handle::current());
 
             let builder = tauri::Builder::default()
+                .plugin(tauri_plugin_os::init())
                 .plugin(tauri_plugin_updater::Builder::new().build())
                 .setup(move |tauri_app| {
                     // let main_window =
@@ -492,7 +493,12 @@ fn shortcut_plugin(super_space_shortcut: Shortcut, launcher_label: String) -> Ta
                 }
                 let start_record = std::time::Instant::now();
                 // Capture the screen region behind the launcher
-                match capture_region_rgba(launcher_x, launcher_y, launcher_width, launcher_height) {
+                match capture_region_rgba(
+                    launcher_x,
+                    launcher_y,
+                    launcher_width + 100,
+                    launcher_height + 100,
+                ) {
                     Ok(img) => {
                         let t0 = std::time::Instant::now();
                         let img = image::DynamicImage::ImageRgba8(img.clone()).to_rgb8();
