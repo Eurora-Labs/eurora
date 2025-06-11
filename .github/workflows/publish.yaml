@@ -30,98 +30,10 @@ on:
                     - major
 
 jobs:
-    build-sveltekit:
-        runs-on: ubuntu-latest
-        env:
-            SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-        steps:
-            - name: Trigger Sentry Cron - In Progress
-              if: ${{ github.event_name == 'schedule' }}
-              shell: bash
-              run: curl "${{ secrets.SENTRY_CRONS }}?status=in_progress"
-            - uses: actions/checkout@v4
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-            - name: Pull Git LFS files
-              run: git lfs pull
-            - name: Consume input variables
-              shell: bash
-              if: ${{ !github.event.workflow_run }}
-              run: |
-                  VITEMODE=nightly
-                  if [[ "${{ github.event.inputs.channel }}" == "release" ]]; then
-                    VITEMODE=production
-                  fi
-
-                  echo "vitemode=$VITEMODE" >> $GITHUB_ENV
-                  echo "channel=${{ github.event.inputs.channel || 'nightly' }}" >> $GITHUB_ENV
-                  echo "bump=${{ github.event.inputs.bump || 'patch' }}" >> $GITHUB_ENV
-            - name: Calculate next version
-              shell: bash
-              run: |
-                  # Default to 0.1.0 if no version is found
-                  CURRENT_VERSION="0.1.0"
-                  if [ -f "apps/desktop/package.json" ]; then
-                    CURRENT_VERSION=$(grep -o '"version": *"[^"]*"' apps/desktop/package.json | cut -d'"' -f4)
-                  fi
-                  NEXT_VERSION=$(./scripts/next.sh "${CURRENT_VERSION}" "${{ env.bump }}")
-                  echo "version=$NEXT_VERSION" >> $GITHUB_ENV
-                  mkdir -p release && echo "$NEXT_VERSION" > release/version
-            - name: Init Node Environment
-              uses: ./.github/actions/init-env-node
-            - name: Install Protoc
-              uses: arduino/setup-protoc@v3
-            - name: Compile Protobuf
-              run: pnpm proto:typescript
-            - name: Generate Tauri Bindings
-              run: |
-                  # Start the dev server in the background to generate bindings
-                  pnpm dev:desktop &
-                  DEV_PID=$!
-
-                  # Wait for bindings to be generated (check for the bindings file)
-                  echo "Waiting for bindings to be generated..."
-                  timeout=60
-                  while [ $timeout -gt 0 ]; do
-                    if [ -f "apps/desktop/src/lib/bindings/bindings.ts" ]; then
-                      echo "Bindings generated successfully!"
-                      break
-                    fi
-                    sleep 2
-                    timeout=$((timeout - 2))
-                  done
-
-                  # Kill the dev server
-                  kill $DEV_PID || true
-                  wait $DEV_PID 2>/dev/null || true
-
-                  # Verify bindings were created
-                  if [ ! -f "apps/desktop/src/lib/bindings/bindings.ts" ]; then
-                    echo "Error: Bindings were not generated"
-                    exit 1
-                  fi
-            - name: Build SvelteKit
-              run: pnpm build:desktop -- --mode ${{ env.vitemode }}
-              env:
-                  SENTRY_RELEASE: ${{ env.version }}
-            - uses: actions/upload-artifact@v4
-              name: Upload pnpm-store contents
-              with:
-                  name: pnpm-store
-                  path: /home/runner/setup-pnpm/node_modules/.bin/store/v3
-                  retention-days: 7
-            - uses: actions/upload-artifact@v4
-              name: Upload SvelteKit build output
-              with:
-                  name: sveltekit-build
-                  path: ./apps/desktop/build/
-                  retention-days: 1
-                  if-no-files-found: error
-
-    build-tauri:
-        needs: build-sveltekit
+    build-unified:
         env:
             CARGO_TERM_COLOR: always
+            SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         strategy:
             fail-fast: false
             matrix:
@@ -139,6 +51,11 @@ jobs:
             channel: ${{ env.channel }}
 
         steps:
+            - name: Trigger Sentry Cron - In Progress
+              if: ${{ github.event_name == 'schedule' }}
+              shell: bash
+              run: curl "${{ secrets.SENTRY_CRONS }}?status=in_progress"
+
             # Because GitHub broke perl installations sometime in 2022 on Windows.
             - name: perl -V (before re-install)
               if: runner.os == 'Windows'
@@ -173,13 +90,16 @@ jobs:
             - name: Pull Git LFS files
               run: git lfs pull
 
-            - name: Init Node Environment
-              uses: ./.github/actions/init-env-node
-
             - name: Consume input variables
               shell: bash
               if: ${{ !github.event.workflow_run }}
               run: |
+                  VITEMODE=nightly
+                  if [[ "${{ github.event.inputs.channel }}" == "release" ]]; then
+                    VITEMODE=production
+                  fi
+
+                  echo "vitemode=$VITEMODE" >> $GITHUB_ENV
                   echo "channel=${{ github.event.inputs.channel || 'nightly' }}" >> $GITHUB_ENV
                   echo "bump=${{ github.event.inputs.bump || 'patch' }}" >> $GITHUB_ENV
 
@@ -194,13 +114,6 @@ jobs:
                   NEXT_VERSION=$(./scripts/next.sh "${CURRENT_VERSION}" "${{ env.bump }}")
                   echo "version=$NEXT_VERSION" >> $GITHUB_ENV
                   mkdir -p release && echo "$NEXT_VERSION" > release/version
-
-            #   - name: Import GPG key
-            #     if: runner.os == 'Linux'
-            #     uses: crazy-max/ghaction-import-gpg@v6
-            #     with:
-            #       gpg_private_key: ${{ secrets.APPIMAGE_PRIVATE_KEY }}
-            #       passphrase: ${{ secrets.APPIMAGE_KEY_PASSPHRASE }}
 
             - name: Install linux dependencies
               shell: bash
@@ -224,18 +137,49 @@ jobs:
                     gir1.2-webkit2-4.1 \
                     libpipewire-0.3-dev;
 
+            - name: Init Node Environment
+              uses: ./.github/actions/init-env-node
+
             - name: Install Protoc
               uses: arduino/setup-protoc@v3
 
             - name: Compile Protobuf
               run: pnpm proto:typescript
 
-            - uses: actions/download-artifact@v4
-              with:
-                  name: sveltekit-build
-                  path: ./apps/desktop/build/
+            - name: Generate Tauri Bindings
+              run: |
+                  # Start the dev server in the background to generate bindings
+                  pnpm dev:desktop &
+                  DEV_PID=$!
 
-            - name: Build binary
+                  # Wait for bindings to be generated (check for the bindings file)
+                  echo "Waiting for bindings to be generated..."
+                  timeout=60
+                  while [ $timeout -gt 0 ]; do
+                    if [ -f "apps/desktop/src/lib/bindings/bindings.ts" ]; then
+                      echo "Bindings generated successfully!"
+                      break
+                    fi
+                    sleep 2
+                    timeout=$((timeout - 2))
+                  done
+
+                  # Kill the dev server
+                  kill $DEV_PID || true
+                  wait $DEV_PID 2>/dev/null || true
+
+                  # Verify bindings were created
+                  if [ ! -f "apps/desktop/src/lib/bindings/bindings.ts" ]; then
+                    echo "Error: Bindings were not generated"
+                    exit 1
+                  fi
+
+            - name: Build SvelteKit
+              run: pnpm build:desktop -- --mode ${{ env.vitemode }}
+              env:
+                  SENTRY_RELEASE: ${{ env.version }}
+
+            - name: Build Tauri Binary
               shell: bash
               run: |
                   ./scripts/release.sh \
@@ -261,7 +205,7 @@ jobs:
                   if-no-files-found: error
 
     publish-tauri:
-        needs: [build-tauri]
+        needs: [build-unified]
         runs-on: ubuntu-latest
         outputs:
             version: ${{ env.version }}
@@ -281,7 +225,7 @@ jobs:
             - name: Download artifacts
               uses: actions/download-artifact@v4
               with:
-                  name: '${{ needs.build-tauri.outputs.channel }}-${{ matrix.platform }}-${{ github.run_number }}'
+                  name: '${{ needs.build-unified.outputs.channel }}-${{ matrix.platform }}-${{ github.run_number }}'
                   path: release
             - name: Extract version
               shell: bash
@@ -303,7 +247,7 @@ jobs:
                   aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
                   aws_bucket: 'releases.eurora-labs.com'
                   source_dir: 'release-s3/'
-                  destination_dir: 'releases/${{ needs.build-tauri.outputs.channel }}/${{ env.version }}-${{ github.run_number }}'
+                  destination_dir: 'releases/${{ needs.build-unified.outputs.channel }}/${{ env.version }}-${{ github.run_number }}'
 
             # tell our server to update with the version number
         #   - name: Notify Eurora API of new release
@@ -315,10 +259,10 @@ jobs:
         #         --request POST \
         #         --header 'Content-Type: application/json' \
         #         --header 'X-Auth-Token: ${{ secrets.BOT_AUTH_TOKEN }}' \
-        #         --data '{"channel":"${{ needs.build-tauri.outputs.channel }}","version":"${{ env.version }}-${{ github.run_number }}","sha":"${{ github.sha }}"}'
+        #         --data '{"channel":"${{ needs.build-unified.outputs.channel }}","version":"${{ env.version }}-${{ github.run_number }}","sha":"${{ github.sha }}"}'
 
     create-git-tag:
-        needs: [publish-tauri, build-tauri]
+        needs: [publish-tauri, build-unified]
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
@@ -327,7 +271,7 @@ jobs:
             - name: Create git tag
               shell: bash
               env:
-                  TAG_NAME: '${{ needs.build-tauri.outputs.channel }}/${{ needs.publish-tauri.outputs.version }}'
+                  TAG_NAME: '${{ needs.build-unified.outputs.channel }}/${{ needs.publish-tauri.outputs.version }}'
               run: |
                   function tag_exists() {
                     git tag --list | grep -q "^$1$"
