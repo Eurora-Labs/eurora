@@ -106,6 +106,11 @@ jobs:
             - name: Compile Protobuf
               run: pnpm proto:typescript
 
+            - name: Build Rust Dependencies
+              run: cargo build
+              env:
+                  CARGO_TERM_COLOR: always
+
             - name: Generate Tauri Bindings
               run: |
                   # Start the dev server in the background to generate bindings
@@ -139,6 +144,14 @@ jobs:
               with:
                   name: tauri-bindings
                   path: apps/desktop/src/lib/bindings/bindings.ts
+                  retention-days: 1
+                  if-no-files-found: error
+
+            - name: Upload Cargo Build Artifacts
+              uses: actions/upload-artifact@v4
+              with:
+                  name: cargo-build-artifacts
+                  path: target/
                   retention-days: 1
                   if-no-files-found: error
 
@@ -300,6 +313,12 @@ jobs:
               with:
                   name: tauri-bindings
                   path: apps/desktop/src/lib/bindings/
+
+            - name: Download Cargo Build Artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  name: cargo-build-artifacts
+                  path: ./
 
             - name: Build Tauri Binary
               shell: bash
