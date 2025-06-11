@@ -107,7 +107,7 @@ jobs:
               run: pnpm proto:typescript
 
             - name: Build Rust Dependencies
-              run: cargo build
+              run: cargo build -p eur-tauri
               env:
                   CARGO_TERM_COLOR: always
 
