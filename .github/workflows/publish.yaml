@@ -262,7 +262,6 @@ jobs:
 
             - name: Init Node Environment
               uses: ./.github/actions/init-env-node
-
             - name: Install linux dependencies
               shell: bash
               if: runner.os == 'Linux'
@@ -277,6 +276,7 @@ jobs:
                     libgtk-3-dev \
                     libappindicator3-dev \
                     librsvg2-dev \
+                    libgbm-dev \
                     libwebkit2gtk-4.1-0 \
                     libwebkit2gtk-4.1-dev \
                     libjavascriptcoregtk-4.1-0 \
