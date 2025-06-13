@@ -1,13 +1,14 @@
-use std::collections::HashMap;
-
+use crate::Activity;
 use crate::{ActivityAsset, ActivityError, ActivitySnapshot, ActivityStrategy, ContextChip};
 use anyhow::Result;
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use eur_native_messaging::{Channel, TauriIpcClient, create_grpc_ipc_client};
 use eur_proto::ipc::{
     self, ProtoArticleState, ProtoPdfState, ProtoYoutubeSnapshot, ProtoYoutubeState, StateRequest,
 };
 use eur_proto::shared::ProtoImageFormat;
+use std::collections::HashMap;
 
 use image::DynamicImage;
 use tokio::sync::Mutex;
@@ -35,6 +36,51 @@ fn load_image_from_proto(
     };
 
     Ok(image)
+}
+
+struct YoutubeActivity {
+    name: String,
+    icon: String,
+    process_name: String,
+    start: DateTime<Utc>,
+    end: Option<DateTime<Utc>>,
+    assets: Vec<Box<dyn ActivityAsset>>,
+    snapshots: Vec<Box<dyn ActivitySnapshot>>,
+    context_chips: Vec<ContextChip>,
+}
+
+impl Activity for YoutubeActivity {
+    fn get_name(&self) -> &String {
+        &self.name
+    }
+
+    fn get_icon(&self) -> &String {
+        &self.icon
+    }
+
+    fn get_process_name(&self) -> &String {
+        &self.process_name
+    }
+
+    fn get_start(&self) -> chrono::DateTime<chrono::Utc> {
+        self.start
+    }
+
+    fn get_end(&self) -> Option<chrono::DateTime<chrono::Utc>> {
+        self.end
+    }
+
+    fn get_assets(&self) -> Vec<Box<dyn ActivityAsset>> {
+        todo!()
+    }
+
+    fn get_snapshots(&self) -> Vec<Box<dyn ActivitySnapshot>> {
+        todo!()
+    }
+
+    fn get_context_chips(&self) -> Vec<ContextChip> {
+        todo!()
+    }
 }
 
 #[derive(Debug, Clone)]
